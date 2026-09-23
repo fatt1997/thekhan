@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ที่คั่น">
+  <meta name="theme-color" content="#F1F3F6">
+  <title>ที่คั่น</title>
+
+  <!-- ไอคอนและข้อมูลแอปสำหรับเพิ่มไปหน้าจอโฮม -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <!-- ฟอนต์ไทย -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
+
+  <!-- สีและการจัดหน้าของเรา -->
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- PDF.js สำหรับอ่าน PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- ระบบล็อกอินของ Google -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- จุดเริ่มต้นของแอป -->
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <!-- หน้า 1: ล็อกอิน -->
+  <section id="screen-login" class="screen" hidden></section>
+
+  <!-- หน้า 2: ชั้นหนังสือ -->
+  <section id="screen-library" class="screen" hidden></section>
+
+  <!-- หน้า 3: หน้าอ่าน -->
+  <section id="screen-reader" class="screen" hidden></section>
+
+  <!-- หน้า 4: ตั้งค่า -->
+  <section id="screen-settings" class="screen" hidden></section>
+
+  <!-- ของที่ใช้ร่วมกันทุกหน้า -->
+  <div id="backdrop" hidden></div>
+  <div id="sheet" role="dialog" aria-modal="true" hidden></div>
+  <div id="toast" role="status"></div>
+</body>
+</html>
