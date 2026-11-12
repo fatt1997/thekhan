@@ -125,6 +125,7 @@ export function showMarksList(marks, handlers) {
   sheet.querySelectorAll("[data-del-bm]").forEach((b) => {
     b.onclick = async () => {
       const page = parseInt(b.dataset.delBm, 10);
+      if (!confirm(`ลบบุ๊กมาร์กหน้า ${page}?`)) return;
       marks.bookmarks = marks.bookmarks.filter((x) => x.page !== page);
       await saveMarks(marks);
       handlers.onChange();
@@ -134,7 +135,11 @@ export function showMarksList(marks, handlers) {
 
   sheet.querySelectorAll("[data-del-hi]").forEach((b) => {
     b.onclick = async () => {
-      marks.history.splice(parseInt(b.dataset.delHi, 10), 1);
+      const index = parseInt(b.dataset.delHi, 10);
+      const entry = marks.history[index];
+      if (!entry) return;
+      if (!confirm(`ลบบันทึก "อ่านถึงหน้า ${entry.page}" (${formatDate(entry.savedAt)})?`)) return;
+      marks.history.splice(index, 1);
       await saveMarks(marks);
       handlers.onChange();
       showMarksList(marks, handlers);
