@@ -26,7 +26,6 @@ const FOLDER_ICON = `<svg viewBox="0 0 64 50" aria-hidden="true">
   </defs>
   <path d="M4 1h17.5c1.4 0 2.4.5 3.3 1.6L27.6 6H60a4 4 0 0 1 4 4v36a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4z" fill="url(#folder-back)"/>
   <rect x="0" y="10" width="64" height="40" rx="4" fill="url(#folder-front)"/>
-  <rect x="0.5" y="10.5" width="63" height="39" rx="3.6" fill="none" stroke="#fff" stroke-opacity=".25"/>
 </svg>`;
 
 /* =========================================================
