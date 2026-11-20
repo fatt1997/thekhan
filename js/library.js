@@ -14,7 +14,20 @@ const screen = document.getElementById("screen-library");
 const sortByName = (a, b) => a.name.localeCompare(b.name, "th");
 const defaultPageMode = () => localStorage.getItem("defaultPageMode") || "swipe";
 
-const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2.5h7A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>`;
+// รูปแฟ้มแบบ 2 ชั้น: แผ่นหลังมีแถบด้านบน แผ่นหน้าไล่สีอ่อนลงเข้ม
+const FOLDER_ICON = `<svg viewBox="0 0 64 50" aria-hidden="true">
+  <defs>
+    <linearGradient id="folder-back" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6FB3E8"/><stop offset="1" stop-color="#4E97D6"/>
+    </linearGradient>
+    <linearGradient id="folder-front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#93D0F6"/><stop offset="1" stop-color="#66B0E8"/>
+    </linearGradient>
+  </defs>
+  <path d="M4 1h17.5c1.4 0 2.4.5 3.3 1.6L27.6 6H60a4 4 0 0 1 4 4v36a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4z" fill="url(#folder-back)"/>
+  <rect x="0" y="10" width="64" height="40" rx="4" fill="url(#folder-front)"/>
+  <rect x="0.5" y="10.5" width="63" height="39" rx="3.6" fill="none" stroke="#fff" stroke-opacity=".25"/>
+</svg>`;
 
 /* =========================================================
    1. เริ่มต้น
