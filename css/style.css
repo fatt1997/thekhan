@@ -288,15 +288,16 @@ h1 {
   font-size: 12px;
 }
 
+/* แฟ้ม: แสดงเป็นรูปแฟ้มเลย ไม่มีกรอบ */
 .folder-cover {
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--tab-soft);
-  color: var(--tab);
+  overflow: visible;
 }
-.folder-cover svg { width: 60%; height: auto; }
+.folder-cover svg {
+  width: 100%;
+  height: auto;
+}
 
 .tile-name {
   display: -webkit-box;
@@ -307,8 +308,9 @@ h1 {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
+  text-align: center;
 }
-.tile-sub { margin-top: -3px; font-size: 11px; color: var(--muted); }
+.tile-sub { margin-top: -3px; font-size: 11px; color: var(--muted); text-align: center; }
 
 .cover-progress {
   position: absolute;
