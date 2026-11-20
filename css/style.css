@@ -288,15 +288,14 @@ h1 {
   font-size: 12px;
 }
 
+/* แฟ้ม: แสดงเป็นรูปแฟ้มเลย ไม่มีกรอบ */
 .folder-cover {
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--tab-soft);
+  overflow: visible;
   color: var(--tab);
 }
-.folder-cover svg { width: 60%; height: auto; }
+.folder-cover svg { width: 118%; height: auto; }
 
 .tile-name {
   display: -webkit-box;
