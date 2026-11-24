@@ -55,6 +55,22 @@ function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 1800);
 }
+
+/* กล่องถามในหน้า (แทน confirm/prompt) */
+function ask({ title, text = '', input = false, area = false, value = '', ok = 'ตกลง', danger = false, cancel = true }) {
+  return new Promise(res => {
+    const m = $('modal'), inp = $('mInput'), ta = $('mArea');
+    $('mTitle').textContent = title; $('mText').textContent = text;
+    inp.hidden = !input; ta.hidden = !area; inp.value = ta.value = value;
+    $('mOk').textContent = ok; $('mOk').classList.toggle('danger', danger);
+    $('mCancel').hidden = !cancel;
+    m.classList.remove('hidden');
+    if (input) inp.focus(); else if (area) { ta.focus(); if (value) ta.select(); }
+    const done = v => { m.classList.add('hidden'); $('mOk').onclick = $('mCancel').onclick = null; res(v); };
+    $('mOk').onclick = () => done(input ? inp.value : area ? ta.value : true);
+    $('mCancel').onclick = () => done(input || area ? null : false);
+  });
+}
 function buzz(ms) { if (data.opts.vibrate && navigator.vibrate) navigator.vibrate(ms); }
 
 /* ---------- หน้าแรก ---------- */
@@ -190,7 +206,7 @@ function goPrev() { if (cur.i > 0) slideTo(cur.i - 1, 1); }
   st.addEventListener('pointercancel', () => { down = false; $('slide').style.transform = ''; });
   // คีย์บอร์ด (ใช้บนคอม): เว้นวรรค = นับ, ลูกศร = เปลี่ยนบท
   document.addEventListener('keydown', e => {
-    if (!$('counter').classList.contains('active') || !$('sheet').classList.contains('hidden')) return;
+    if (!$('counter').classList.contains('active') || !$('sheet').classList.contains('hidden') || !$('modal').classList.contains('hidden')) return;
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); tap(); }
     if (e.key === 'ArrowLeft') goNext();
     if (e.key === 'ArrowRight') goPrev();
@@ -204,9 +220,9 @@ $('btnUndo').onclick = () => {
   const it = item(); const c = countOf(it);
   if (c > 0) { clearTimeout(advanceT); cur.showDone = false; data.progress.counts[it.id] = c - 1; save(); renderCounter(); }
 };
-$('btnReset').onclick = () => {
+$('btnReset').onclick = async () => {
   if (!sess().items.length) return;
-  if (!confirm('เริ่มนับบทนี้ใหม่จาก 0 ?')) return;
+  if (!await ask({ title: 'เริ่มนับบทนี้ใหม่จาก 0 ?', ok: 'เริ่มใหม่', danger: true })) return;
   clearTimeout(advanceT); cur.showDone = false;
   delete data.progress.counts[item().id]; save(); renderCounter();
 };
@@ -257,10 +273,10 @@ $('edItems').addEventListener('input', e => {
   const x = draft.items[+box.dataset.k];
   x[f] = f === 'target' ? Math.max(1, parseInt(e.target.value, 10) || 1) : e.target.value;
 });
-$('edItems').addEventListener('click', e => {
+$('edItems').addEventListener('click', async e => {
   const b = e.target.closest('[data-a]'); if (!b) return;
   const k = +b.closest('.ed-item').dataset.k, a = b.dataset.a, arr = draft.items;
-  if (a === 'del') { if (!confirm('ลบบทนี้?')) return; arr.splice(k, 1); }
+  if (a === 'del') { if (!await ask({ title: 'ลบบทนี้?', ok: 'ลบ', danger: true })) return; arr.splice(k, 1); }
   if (a === 'up' && k > 0) [arr[k - 1], arr[k]] = [arr[k], arr[k - 1]];
   if (a === 'down' && k < arr.length - 1) [arr[k + 1], arr[k]] = [arr[k], arr[k + 1]];
   renderEditor();
@@ -270,8 +286,9 @@ $('btnAddItem').onclick = () => {
   renderEditor();
   const all = $('edItems').querySelectorAll('textarea'); all[all.length - 1].focus();
 };
-$('btnPaste').onclick = () => {
-  const txt = prompt('วางบทซิกิร บรรทัดละ 1 บท\nใส่จำนวนครั้งท้ายบรรทัดหลังเครื่องหมาย | เช่น\nسبحان الله | 33');
+$('btnPaste').onclick = async () => {
+  const txt = await ask({ title: 'วางหลายบทพร้อมกัน', area: true, ok: 'เพิ่ม',
+    text: 'บรรทัดละ 1 บท ใส่จำนวนครั้งท้ายบรรทัดหลัง | เช่น\nسبحان الله | 33' });
   if (!txt) return;
   txt.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
     const m = l.match(/^(.*?)\s*[|x×*]\s*(\d+)\s*$/);
@@ -297,26 +314,26 @@ $('btnSettings').onclick = () => {
 $('btnSetBack').onclick = () => { show('home'); renderHome(); };
 $('optVibrate').onchange = e => { data.opts.vibrate = e.target.checked; save(); };
 $('optAuto').onchange = e => { data.opts.auto = e.target.checked; save(); };
-$('btnAddSession').onclick = () => {
-  const name = prompt('ชื่อหมวดใหม่'); if (!name) return;
+$('btnAddSession').onclick = async () => {
+  const name = await ask({ title: 'ชื่อหมวดใหม่', input: true, ok: 'เพิ่ม' }); if (!name || !name.trim()) return;
   data.sessions.push({ id: uid(), name: name.trim(), items: [] }); save(); toast('เพิ่มหมวดแล้ว');
 };
-$('btnResetToday').onclick = () => {
-  if (!confirm('ล้างการนับของวันนี้ทั้งหมด?')) return;
+$('btnResetToday').onclick = async () => {
+  if (!await ask({ title: 'ล้างการนับของวันนี้ทั้งหมด?', ok: 'ล้าง', danger: true })) return;
   data.progress = { date: todayKey(), counts: {} }; save(); toast('ล้างแล้ว');
 };
 $('btnExport').onclick = async () => {
   const s = JSON.stringify({ sessions: data.sessions }, null, 1);
   try { await navigator.clipboard.writeText(s); toast('คัดลอกข้อมูลแล้ว'); }
-  catch (e) { prompt('คัดลอกข้อความนี้เก็บไว้', s); }
+  catch (e) { ask({ title: 'คัดลอกข้อความนี้เก็บไว้', area: true, value: s, ok: 'ปิด', cancel: false }); }
 };
-$('btnImport').onclick = () => {
-  const s = prompt('วางข้อมูลที่สำรองไว้'); if (!s) return;
+$('btnImport').onclick = async () => {
+  const s = await ask({ title: 'วางข้อมูลที่สำรองไว้', area: true, ok: 'นำเข้า' }); if (!s) return;
   try {
     const d = JSON.parse(s);
     if (!Array.isArray(d.sessions)) throw 0;
     data.sessions = d.sessions; save(); toast('นำเข้าแล้ว');
-  } catch (e) { alert('ข้อมูลไม่ถูกต้อง'); }
+  } catch (e) { toast('ข้อมูลไม่ถูกต้อง'); }
 };
 
 /* เริ่ม */
@@ -324,4 +341,4 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && $('home').classList.contains('active')) renderHome();
 });
 renderHome();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && !window.ZIKR_EMBED) navigator.serviceWorker.register('sw.js').catch(() => {});

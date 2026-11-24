@@ -121,6 +121,21 @@
 
 <div id="toast" class="toast hidden"></div>
 
+<!-- กล่องถาม/กรอกข้อความ -->
+<div id="modal" class="sheet modal hidden">
+  <div class="sheet-bg"></div>
+  <div class="modal-card">
+    <h3 id="mTitle"></h3>
+    <p id="mText" class="muted"></p>
+    <input id="mInput" type="text">
+    <textarea id="mArea" rows="6"></textarea>
+    <div class="modal-btns">
+      <button class="pill ghost" id="mCancel">ยกเลิก</button>
+      <button class="pill ok" id="mOk">ตกลง</button>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>
