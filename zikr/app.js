@@ -203,9 +203,10 @@ function goPrev() { if (cur.i > 0) slideTo(cur.i - 1, 1); }
   });
   st.addEventListener('pointermove', e => {
     if (!down) return;
-    const dx = e.clientX - sx;
-    if (Math.abs(dx) > 12 || Math.abs(e.clientY - sy) > 12) moved = true;
-    if (moved && !cur.showDone) $('slide').style.transform = `translateX(${dx * 0.5}px)`;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) > 12 || Math.abs(dy) > 12) moved = true;
+    // ขยับตามนิ้วเฉพาะตอนปัดแนวนอน ปัดแนวตั้งปล่อยให้เลื่อนข้อความ
+    if (moved && !cur.showDone && Math.abs(dx) > Math.abs(dy)) $('slide').style.transform = `translateX(${dx * 0.5}px)`;
   });
   const end = e => {
     if (!down) return; down = false;
