@@ -117,7 +117,7 @@ function renderCounter() {
   $('slide').classList.toggle('hidden', allDone && cur.showDone);
   if (empty) {
     $('pos').textContent = '';
-    $('dhikrText').textContent = 'ยังไม่มีบท';
+    $('dhikrText').textContent = 'ยังไม่มีบท'; $('dhikrText').dataset.id = '';
     $('dhikrNote').textContent = 'กดปุ่มดินสอด้านบนเพื่อเพิ่มบท';
     $('count').textContent = ''; $('target').textContent = '';
     $('dots').innerHTML = '';
@@ -125,7 +125,10 @@ function renderCounter() {
   }
   const it = item(), c = countOf(it);
   $('pos').textContent = `บทที่ ${cur.i + 1} / ${items.length}`;
-  $('dhikrText').textContent = it.text;
+  const tx = $('dhikrText');
+  if (tx.dataset.id !== it.id) { tx.dataset.id = it.id; tx.scrollTop = 0; }
+  if (tx.textContent !== it.text) tx.textContent = it.text;
+  requestAnimationFrame(markScroll);
   $('dhikrNote').textContent = it.note || '';
   $('count').textContent = c;
   $('target').textContent = isDone(it) ? `ครบ ${it.target} ครั้ง ✓` : `จาก ${it.target} ครั้ง`;
@@ -133,6 +136,15 @@ function renderCounter() {
   $('dots').innerHTML = items.map((x, k) =>
     `<i class="${k === cur.i ? 'cur' : ''} ${isDone(x) ? 'done' : ''}"></i>`).join('');
 }
+
+/* ข้อความยาว: จางด้านล่างเพื่อบอกว่าเลื่อนอ่านต่อได้ */
+function markScroll() {
+  const t = $('dhikrText');
+  t.classList.toggle('more', t.scrollHeight > t.clientHeight + 4);
+  t.classList.toggle('end', t.scrollTop + t.clientHeight >= t.scrollHeight - 4);
+}
+$('dhikrText').addEventListener('scroll', markScroll, { passive: true });
+window.addEventListener('resize', markScroll);
 
 let advanceT;
 function tap() {
@@ -215,11 +227,6 @@ function goPrev() { if (cur.i > 0) slideTo(cur.i - 1, 1); }
 
 $('btnBack').onclick = () => { clearTimeout(advanceT); cur.showDone = false; show('home'); renderHome(); };
 $('btnDoneBack').onclick = $('btnBack').onclick;
-$('btnUndo').onclick = () => {
-  if (!sess().items.length) return;
-  const it = item(); const c = countOf(it);
-  if (c > 0) { clearTimeout(advanceT); cur.showDone = false; data.progress.counts[it.id] = c - 1; save(); renderCounter(); }
-};
 $('btnReset').onclick = async () => {
   if (!sess().items.length) return;
   if (!await ask({ title: 'เริ่มนับบทนี้ใหม่จาก 0 ?', ok: 'เริ่มใหม่', danger: true })) return;
