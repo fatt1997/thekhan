@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>ตัวนับซิกิร</title>
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ซิกิร">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@500;700&family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- หน้าแรก: เลือกช่วงเวลา -->
+<section id="home" class="screen active">
+  <header class="home-head">
+    <div>
+      <h1>ซิกิร</h1>
+      <p id="today" class="muted"></p>
+    </div>
+    <button class="round" id="btnSettings" aria-label="ตั้งค่า">
+      <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    </button>
+  </header>
+  <div id="sessionList" class="session-list"></div>
+</section>
+
+<!-- หน้านับ -->
+<section id="counter" class="screen">
+  <header class="top">
+    <button class="round" id="btnBack" aria-label="กลับ">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="top-title" id="sessionTitle"></div>
+    <div class="top-right">
+      <button class="round" id="btnReset" aria-label="เริ่มบทนี้ใหม่">
+        <svg viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 1-6.6 4.7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M12 1.5v7l-4-3.5z" fill="currentColor"/></svg>
+      </button>
+      <button class="round" id="btnList" aria-label="รายการบท">
+        <svg viewBox="0 0 24 24"><g fill="currentColor"><circle cx="4.5" cy="6" r="1.6"/><circle cx="4.5" cy="12" r="1.6"/><circle cx="4.5" cy="18" r="1.6"/><rect x="8.5" y="5" width="12" height="2" rx="1"/><rect x="8.5" y="11" width="12" height="2" rx="1"/><rect x="8.5" y="17" width="12" height="2" rx="1"/></g></svg>
+      </button>
+      <button class="round" id="btnEdit" aria-label="แก้ไขบท">
+        <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="stage" class="stage">
+    <div id="slide" class="slide">
+      <div class="pos" id="pos"></div>
+      <div class="arabic" id="dhikrText" dir="rtl"></div>
+      <div class="note" id="dhikrNote"></div>
+      <div class="count" id="count">0</div>
+      <div class="target" id="target"></div>
+    </div>
+    <div id="doneAll" class="done-all hidden">
+      <div class="check">✓</div>
+      <h2>ครบทุกบทแล้ว</h2>
+      <p class="muted">ขออัลลอฮ์ทรงตอบรับ</p>
+      <button class="pill" id="btnDoneBack">กลับหน้าแรก</button>
+    </div>
+  </div>
+
+  <footer class="bottom">
+    <button class="pill ghost" id="btnUndo">−1</button>
+    <div id="dots" class="dots"></div>
+    <div class="hint">ปัดซ้าย ➜ บทถัดไป</div>
+  </footer>
+</section>
+
+<!-- แผ่นรายการบท -->
+<div id="sheet" class="sheet hidden">
+  <div class="sheet-bg" data-close></div>
+  <div class="sheet-card">
+    <div class="sheet-head"><h3 id="sheetTitle">รายการบท</h3><button class="link" data-close>ปิด</button></div>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+
+<!-- หน้าแก้ไข -->
+<section id="editor" class="screen light-screen">
+  <header class="ed-head">
+    <button class="link" id="btnEdCancel">ยกเลิก</button>
+    <h2>แก้ไขบท</h2>
+    <button class="link strong" id="btnEdSave">บันทึก</button>
+  </header>
+  <div class="ed-body">
+    <label class="field">
+      <span>ชื่อหมวด</span>
+      <input id="edName" type="text">
+    </label>
+    <div id="edItems"></div>
+    <button class="pill wide" id="btnAddItem">+ เพิ่มบท</button>
+    <button class="pill wide ghost" id="btnPaste">วางหลายบทพร้อมกัน</button>
+  </div>
+</section>
+
+<!-- หน้าตั้งค่า -->
+<section id="settings" class="screen light-screen">
+  <header class="ed-head">
+    <button class="link" id="btnSetBack">กลับ</button>
+    <h2>ตั้งค่า</h2>
+    <span style="width:56px"></span>
+  </header>
+  <div class="ed-body">
+    <label class="row-toggle"><span>สั่นเมื่อแตะนับ</span><input type="checkbox" id="optVibrate"></label>
+    <label class="row-toggle"><span>ไปบทถัดไปอัตโนมัติเมื่อครบ</span><input type="checkbox" id="optAuto"></label>
+    <button class="pill wide" id="btnAddSession">+ เพิ่มหมวด</button>
+    <button class="pill wide ghost" id="btnResetToday">ล้างการนับของวันนี้</button>
+    <button class="pill wide ghost" id="btnExport">สำรองข้อมูล (คัดลอก)</button>
+    <button class="pill wide ghost" id="btnImport">นำเข้าข้อมูล</button>
+    <p class="muted small">ข้อมูลเก็บในเครื่องนี้เท่านั้น การนับจะเริ่มใหม่ทุกวันเอง</p>
+  </div>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
