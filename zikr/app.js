@@ -37,7 +37,80 @@ function load() {
   } catch (e) {}
   return defaultData();
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} }
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+  cloud.queue();
+}
+
+/* ---------- เก็บในบัญชี Claude (ไม่หายเมื่อปิดแอป) ---------- */
+const cloud = {
+  ref: null, dirty: false, writing: false, timer: null, ok: false,
+  queue() {
+    if (!this.ref) return;
+    this.dirty = true;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 800);
+  },
+  async flush() {
+    clearTimeout(this.timer);
+    if (!this.ref || !this.dirty || this.writing) return;
+    this.dirty = false; this.writing = true;
+    try {
+      await this.ref.set({ v: 1, sessions: data.sessions, opts: data.opts, progress: data.progress, savedAt: Date.now() });
+      this.ok = true;
+    } catch (e) {
+      this.dirty = true; this.ok = false;
+      if (e && e.code === 'unavailable') setTimeout(() => this.flush(), 1500 + Math.random() * 1000);
+    }
+    this.writing = false;
+    setStatus();
+    if (this.dirty) this.queue();
+  },
+};
+function setStatus() {
+  const el = document.getElementById('syncNote'); if (!el) return;
+  el.textContent = cloud.ref ? (cloud.ok ? '☁︎ บันทึกในบัญชีแล้ว' : '☁︎ กำลังเชื่อมต่อ…') : 'บันทึกเฉพาะเครื่องนี้';
+}
+async function initCloud() {
+  if (!window.claude || !window.claude.use) return;
+  try {
+    const [db, user] = await Promise.all([claude.use('db'), claude.use('user')]);
+    if (!db || !user) return;
+    const id = await user.id(); if (!id) return;
+    cloud.ref = db.doc('data/users/' + id + '/zikr');
+    setStatus();
+    let first = true;
+    const loadTimer = setTimeout(() => { if (first) setStatus(); }, 10000);
+    cloud.ref.onSnapshot(snap => {
+      if (snap.metadata.hasPendingWrites || cloud.dirty || cloud.writing) return;
+      if (snap.exists) {
+        const d = snap.data();
+        if (d && Array.isArray(d.sessions)) {
+          data = {
+            sessions: JSON.parse(JSON.stringify(d.sessions)),
+            opts: Object.assign({ vibrate: true, auto: true }, d.opts),
+            progress: d.progress ? JSON.parse(JSON.stringify(d.progress)) : { date: todayKey(), counts: {} },
+          };
+          try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+          if (!snap.metadata.fromCache) cloud.ok = true;
+          refreshView();
+        }
+      } else if (first && !snap.metadata.fromCache) {
+        cloud.dirty = true; cloud.flush();   // ครั้งแรก: ส่งข้อมูลในเครื่องขึ้นบัญชี
+      }
+      if (!snap.metadata.fromCache) { first = false; clearTimeout(loadTimer); }
+      setStatus();
+    }, () => { cloud.ok = false; setStatus(); });
+  } catch (e) {}
+}
+function refreshView() {
+  if (!data.sessions[cur.s]) cur.s = 0;
+  if ($('home').classList.contains('active')) renderHome();
+  else if ($('counter').classList.contains('active')) {
+    cur.i = Math.min(cur.i, Math.max(0, sess().items.length - 1));
+    renderCounter();
+  }
+}
 function rollDay() {
   if (data.progress.date !== todayKey()) { data.progress = { date: todayKey(), counts: {} }; save(); }
 }
@@ -346,7 +419,11 @@ $('btnImport').onclick = async () => {
 
 /* เริ่ม */
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && $('home').classList.contains('active')) renderHome();
+  if (document.hidden) cloud.flush();
+  else if ($('home').classList.contains('active')) renderHome();
 });
+window.addEventListener('pagehide', () => cloud.flush());
 renderHome();
+setStatus();
+initCloud();
 if ('serviceWorker' in navigator && !window.ZIKR_EMBED) navigator.serviceWorker.register('sw.js').catch(() => {});
