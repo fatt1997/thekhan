@@ -206,17 +206,17 @@ h1 {
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-/* ตารางปก: ขนาดเล็กประมาณไอคอน บน iPhone ได้ 5 คอลัมน์ จอใหญ่ได้มากขึ้นเอง */
+/* ตารางปก: บน iPhone ได้ 3 คอลัมน์ ปกใหญ่พอเห็นชัด จอใหญ่ได้มากขึ้นเอง */
 .shelf {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-  gap: 18px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 22px 18px;
 }
 
 .tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -231,7 +231,7 @@ h1 {
 .tile-cover {
   position: relative;
   aspect-ratio: 3 / 4;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
 }
 
@@ -247,7 +247,7 @@ h1 {
   bottom: 0;
   left: 0;
   z-index: 1;
-  width: 4px;
+  width: 6px;
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0));
 }
 .book-cover img {
@@ -263,11 +263,11 @@ h1 {
   inset: 0;
   display: flex;
   align-items: flex-end;
-  padding: 6px 5px 9px 7px;
+  padding: 8px 8px 12px 11px;
   overflow: hidden;
   overflow-wrap: anywhere;
   background: var(--ribbon-soft);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
 }
@@ -282,10 +282,10 @@ h1 {
 }
 .cloud-badge {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: 5px;
+  right: 5px;
   z-index: 3;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 /* แฟ้ม: แสดงเป็นรูปแฟ้มเลย ไม่มีกรอบ */
@@ -305,12 +305,12 @@ h1 {
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.35;
   text-align: center;
 }
-.tile-sub { margin-top: -3px; font-size: 11px; color: var(--muted); text-align: center; }
+.tile-sub { margin-top: -3px; font-size: 12.5px; color: var(--muted); text-align: center; }
 
 .cover-progress {
   position: absolute;
@@ -318,7 +318,7 @@ h1 {
   right: 0;
   bottom: 0;
   z-index: 2;
-  height: 3px;
+  height: 4px;
   background: rgba(0, 0, 0, 0.18);
 }
 .cover-progress .fill {
@@ -340,15 +340,15 @@ h1 {
 /* กล่องสถานะบนปก: ดาวน์โหลด อัปโหลด เตรียมหน้า */
 .cover-status {
   position: absolute;
-  left: 3px;
-  right: 3px;
-  bottom: 6px;
+  left: 5px;
+  right: 5px;
+  bottom: 8px;
   z-index: 3;
-  padding: 3px 4px 4px;
+  padding: 4px 6px 5px;
   border-radius: 4px;
   background: rgba(15, 20, 30, 0.72);
   color: #fff;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.3;
 }
 .cover-status span { display: block; margin-bottom: 2px; }
