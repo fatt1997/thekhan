@@ -43,7 +43,7 @@ function save(kind) {
   if (kind === 'cfg') data.cfgAt = now; else data.progress.at = now;
   try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
   cloud.queue();
-  gsync.queue();
+  if (kind === 'cfg') gsync.queue();   // Drive เก็บแค่หมวดและบท ไม่เก็บจำนวนที่นับ
 }
 
 
@@ -135,7 +135,7 @@ const gsync = {
   },
   payload() {
     if (!data.cfgAt) data.cfgAt = 1;   // เครื่องที่ยังไม่เคยแก้ ถือว่าเก่ากว่าของใน Drive เสมอ
-    return JSON.stringify({ v: 1, sessions: data.sessions, opts: data.opts, cfgAt: data.cfgAt, progress: data.progress });
+    return JSON.stringify({ v: 1, sessions: data.sessions, opts: data.opts, cfgAt: data.cfgAt });
   },
   async push() {
     const id = await this.findFile();
@@ -152,7 +152,7 @@ const gsync = {
       this.fileId = j.id;
     }
   },
-  // ดึงของใน Drive มารวมกับในเครื่อง: หมวด/บทใช้ชุดที่แก้ล่าสุด, การนับใช้ของวันล่าสุด
+  // ดึงหมวด/บทจาก Drive มารวมกับในเครื่อง ใช้ชุดที่แก้ล่าสุด (การนับอยู่แค่ในเครื่อง)
   async sync() {
     if (!this.user || this.busy) { this.again = this.busy; return; }
     this.busy = true; this.state = 'syncing'; setStatus();
@@ -165,10 +165,6 @@ const gsync = {
           if ((r.cfgAt || 0) > (data.cfgAt || -1)) {
             data.sessions = r.sessions; data.opts = Object.assign({ vibrate: true, auto: true }, r.opts); data.cfgAt = r.cfgAt; changed = true;
           } else if ((r.cfgAt || 0) < (data.cfgAt || -1)) needPush = true;
-          const rp = r.progress || {}, lp = data.progress;
-          const rNewer = rp.date > lp.date || (rp.date === lp.date && (rp.at || 0) > (lp.at || 0));
-          const lNewer = lp.date > rp.date || (rp.date === lp.date && (lp.at || 0) > (rp.at || 0));
-          if (rNewer) { data.progress = rp; changed = true; } else if (lNewer) needPush = true;
         } else needPush = true;
       }
       if (changed) { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} refreshView(); }
