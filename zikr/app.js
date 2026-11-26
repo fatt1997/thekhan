@@ -37,9 +37,174 @@ function load() {
   } catch (e) {}
   return defaultData();
 }
-function save() {
+// kind: 'cfg' = แก้หมวด/บท/ตั้งค่า, อื่นๆ = การนับ  (เวลาแยกกัน ใช้ตัดสินตอนรวมข้อมูลข้ามเครื่อง)
+function save(kind) {
+  const now = Date.now();
+  if (kind === 'cfg') data.cfgAt = now; else data.progress.at = now;
   try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
   cloud.queue();
+  gsync.queue();
+}
+
+
+/* ---------- ล็อกอิน Google และซิงก์กับ Google Drive ----------
+   ใช้ Client ID เดียวกับแอป "ที่คั่น" (โดเมนเดียวกันบน GitHub Pages)
+   เก็บไฟล์ zikr.json ไว้ในพื้นที่ซ่อนของแอปใน Drive (appDataFolder) */
+const G_CLIENT_ID = '922844618672-onl873lknucvqdbcou5ogio3vtqm1oub.apps.googleusercontent.com';
+const G_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata';
+const G_FILE = 'zikr.json';
+const KEY_GUSER = 'zikr-guser', KEY_GTOKEN = 'zikr-gtoken';
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+
+const gsync = {
+  enabled: !window.ZIKR_EMBED,
+  user: lsGet(KEY_GUSER),          // { email }
+  tok: lsGet(KEY_GTOKEN),          // { token, exp }
+  client: null, pending: null, fileId: null,
+  state: 'idle',                   // idle | syncing | ok | need | error
+  timer: null, busy: false, again: false,
+
+  hasToken() { return this.tok && this.tok.exp > Date.now(); },
+  ready() {
+    return new Promise((res, rej) => {
+      const t0 = Date.now();
+      const chk = () => (window.google && google.accounts && google.accounts.oauth2) ? res()
+        : Date.now() - t0 > 8000 ? rej(new Error('gis_timeout')) : setTimeout(chk, 100);
+      chk();
+    });
+  },
+  async init() {
+    if (!this.enabled) return;
+    try {
+      await this.ready();
+      this.client = google.accounts.oauth2.initTokenClient({
+        client_id: G_CLIENT_ID, scope: G_SCOPES,
+        callback: r => {
+          const p = this.pending; this.pending = null; if (!p) return;
+          if (r.error) return p.rej(new Error(r.error));
+          this.tok = { token: r.access_token, exp: Date.now() + (Number(r.expires_in || 3600) - 60) * 1000 };
+          lsSet(KEY_GTOKEN, this.tok); p.res();
+        },
+        error_callback: e => { const p = this.pending; this.pending = null; if (p) p.rej(new Error((e && e.type) || 'popup_closed')); },
+      });
+    } catch (e) {}
+    if (this.user) { if (this.hasToken()) this.sync(); else { this.state = 'need'; setStatus(); } }
+  },
+  // ต้องเรียกจากการกดปุ่มเท่านั้น ไม่งั้น Safari บล็อกหน้าต่างล็อกอิน
+  login() {
+    if (!this.client) return Promise.reject(new Error('gis_not_ready'));
+    return new Promise((res, rej) => {
+      this.pending = { res, rej };
+      this.client.requestAccessToken({ prompt: this.user ? '' : 'consent', login_hint: this.user ? this.user.email : undefined });
+    });
+  },
+  async signIn() {
+    try {
+      await this.login();
+      const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + this.tok.token } });
+      const p = r.ok ? await r.json() : {};
+      this.user = { email: p.email || '' }; lsSet(KEY_GUSER, this.user);
+      await this.sync();
+      toast('ซิงก์กับ Google Drive แล้ว');
+    } catch (e) {
+      const m = { popup_closed: 'ปิดหน้าต่างล็อกอินก่อนเสร็จ', popup_failed_to_open: 'เบราว์เซอร์บล็อกหน้าต่างล็อกอิน ลองกดอีกครั้ง',
+        access_denied: 'ยังไม่ได้อนุญาตให้แอปใช้ Drive', gis_not_ready: 'ระบบล็อกอินของ Google ยังไม่พร้อม ลองรีเฟรชหน้า' };
+      toast(m[e.message] || 'ล็อกอินไม่สำเร็จ ลองอีกครั้ง');
+    }
+    renderAccount(); setStatus();
+  },
+  signOut() {
+    if (this.tok && window.google && google.accounts) google.accounts.oauth2.revoke(this.tok.token, () => {});
+    this.user = this.tok = this.fileId = null; lsSet(KEY_GUSER, null); lsSet(KEY_GTOKEN, null);
+    this.state = 'idle'; renderAccount(); setStatus();
+  },
+  async api(url, opts = {}) {
+    if (!this.hasToken()) throw new Error('need_login');
+    const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({}, opts.headers, { Authorization: 'Bearer ' + this.tok.token }) }));
+    if (r.status === 401) { this.tok = null; lsSet(KEY_GTOKEN, null); throw new Error('need_login'); }
+    if (!r.ok) throw new Error('drive_' + r.status);
+    return r;
+  },
+  async findFile() {
+    if (this.fileId) return this.fileId;
+    const q = encodeURIComponent("name='" + G_FILE + "' and trashed=false");
+    const j = await (await this.api('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id)&q=' + q)).json();
+    this.fileId = j.files && j.files[0] ? j.files[0].id : null;
+    return this.fileId;
+  },
+  payload() {
+    if (!data.cfgAt) data.cfgAt = 1;   // เครื่องที่ยังไม่เคยแก้ ถือว่าเก่ากว่าของใน Drive เสมอ
+    return JSON.stringify({ v: 1, sessions: data.sessions, opts: data.opts, cfgAt: data.cfgAt, progress: data.progress });
+  },
+  async push() {
+    const id = await this.findFile();
+    if (id) {
+      await this.api('https://www.googleapis.com/upload/drive/v3/files/' + id + '?uploadType=media',
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: this.payload() });
+    } else {
+      const b = 'zikr' + Math.random().toString(36).slice(2);
+      const body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify({ name: G_FILE, parents: ['appDataFolder'] }) + '\r\n--' + b +
+        '\r\nContent-Type: application/json\r\n\r\n' + this.payload() + '\r\n--' + b + '--';
+      const j = await (await this.api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body })).json();
+      this.fileId = j.id;
+    }
+  },
+  // ดึงของใน Drive มารวมกับในเครื่อง: หมวด/บทใช้ชุดที่แก้ล่าสุด, การนับใช้ของวันล่าสุด
+  async sync() {
+    if (!this.user || this.busy) { this.again = this.busy; return; }
+    this.busy = true; this.state = 'syncing'; setStatus();
+    try {
+      const id = await this.findFile();
+      let changed = false, needPush = !id;
+      if (id) {
+        const r = await (await this.api('https://www.googleapis.com/drive/v3/files/' + id + '?alt=media')).json();
+        if (r && Array.isArray(r.sessions)) {
+          if ((r.cfgAt || 0) > (data.cfgAt || -1)) {
+            data.sessions = r.sessions; data.opts = Object.assign({ vibrate: true, auto: true }, r.opts); data.cfgAt = r.cfgAt; changed = true;
+          } else if ((r.cfgAt || 0) < (data.cfgAt || -1)) needPush = true;
+          const rp = r.progress || {}, lp = data.progress;
+          const rNewer = rp.date > lp.date || (rp.date === lp.date && (rp.at || 0) > (lp.at || 0));
+          const lNewer = lp.date > rp.date || (rp.date === lp.date && (lp.at || 0) > (rp.at || 0));
+          if (rNewer) { data.progress = rp; changed = true; } else if (lNewer) needPush = true;
+        } else needPush = true;
+      }
+      if (changed) { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} refreshView(); }
+      if (needPush) await this.push();
+      this.state = 'ok';
+    } catch (e) {
+      this.state = e.message === 'need_login' ? 'need' : 'error';
+    }
+    this.busy = false; setStatus();
+    if (this.again) { this.again = false; this.queue(); }
+  },
+  queue() {
+    if (!this.user) return;
+    if (!this.hasToken()) { this.state = 'need'; setStatus(); return; }
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 1500);
+  },
+  async flush() {
+    clearTimeout(this.timer); this.timer = null;
+    if (!this.user || !this.hasToken()) return;
+    if (this.busy) { this.again = true; return; }
+    this.busy = true; this.state = 'syncing'; setStatus();
+    try { await this.push(); this.state = 'ok'; }
+    catch (e) { this.state = e.message === 'need_login' ? 'need' : 'error'; }
+    this.busy = false; setStatus();
+    if (this.again) { this.again = false; this.queue(); }
+  },
+};
+
+function renderAccount() {
+  const box = document.getElementById('gAccount'); if (!box) return;
+  if (!gsync.enabled) { box.hidden = true; return; }
+  box.hidden = false;
+  $('gSignedOut').hidden = !!gsync.user;
+  $('gSignedIn').hidden = !gsync.user;
+  if (gsync.user) $('gEmail').textContent = gsync.user.email || 'บัญชี Google';
 }
 
 /* ---------- เก็บในบัญชี Claude (ไม่หายเมื่อปิดแอป) ---------- */
@@ -69,7 +234,18 @@ const cloud = {
 };
 function setStatus() {
   const el = document.getElementById('syncNote'); if (!el) return;
-  el.textContent = cloud.ref ? (cloud.ok ? '☁︎ บันทึกในบัญชีแล้ว' : '☁︎ กำลังเชื่อมต่อ…') : 'บันทึกเฉพาะเครื่องนี้';
+  el.onclick = null; el.classList.remove('tap');
+  if (gsync.user) {
+    const m = { syncing: 'กำลังซิงก์กับ Google Drive…', ok: '✓ ซิงก์กับ Google Drive แล้ว',
+      error: 'ซิงก์ไม่สำเร็จ แตะเพื่อลองใหม่', need: 'แตะเพื่อซิงก์กับ Google Drive', idle: 'Google Drive' };
+    el.textContent = m[gsync.state] || '';
+    if (gsync.state === 'need' || gsync.state === 'error') {
+      el.classList.add('tap');
+      el.onclick = () => gsync.state === 'need' ? gsync.signIn() : gsync.sync();
+    }
+  } else if (cloud.ref) el.textContent = cloud.ok ? '☁︎ บันทึกในบัญชีแล้ว' : '☁︎ กำลังเชื่อมต่อ…';
+  else if (gsync.enabled) { el.textContent = 'ยังไม่ได้ซิงก์ แตะเพื่อเข้าสู่ระบบ Google'; el.classList.add('tap'); el.onclick = () => gsync.signIn(); }
+  else el.textContent = 'บันทึกเฉพาะเครื่องนี้';
 }
 async function initCloud() {
   if (!window.claude || !window.claude.use) return;
@@ -381,7 +557,7 @@ $('btnEdCancel').onclick = () => { draft = null; show('counter'); renderCounter(
 $('btnEdSave').onclick = () => {
   draft.name = $('edName').value.trim() || sess().name;
   draft.items = draft.items.filter(x => x.text.trim());
-  data.sessions[cur.s] = draft; draft = null; save();
+  data.sessions[cur.s] = draft; draft = null; save('cfg');
   cur.i = Math.min(cur.i, Math.max(0, sess().items.length - 1));
   cur.showDone = false;
   show('counter'); renderCounter(); toast('บันทึกแล้ว');
@@ -393,11 +569,11 @@ $('btnSettings').onclick = () => {
   show('settings');
 };
 $('btnSetBack').onclick = () => { show('home'); renderHome(); };
-$('optVibrate').onchange = e => { data.opts.vibrate = e.target.checked; save(); };
-$('optAuto').onchange = e => { data.opts.auto = e.target.checked; save(); };
+$('optVibrate').onchange = e => { data.opts.vibrate = e.target.checked; save('cfg'); };
+$('optAuto').onchange = e => { data.opts.auto = e.target.checked; save('cfg'); };
 $('btnAddSession').onclick = async () => {
   const name = await ask({ title: 'ชื่อหมวดใหม่', input: true, ok: 'เพิ่ม' }); if (!name || !name.trim()) return;
-  data.sessions.push({ id: uid(), name: name.trim(), items: [] }); save(); toast('เพิ่มหมวดแล้ว');
+  data.sessions.push({ id: uid(), name: name.trim(), items: [] }); save('cfg'); toast('เพิ่มหมวดแล้ว');
 };
 $('btnResetToday').onclick = async () => {
   if (!await ask({ title: 'ล้างการนับของวันนี้ทั้งหมด?', ok: 'ล้าง', danger: true })) return;
@@ -413,17 +589,25 @@ $('btnImport').onclick = async () => {
   try {
     const d = JSON.parse(s);
     if (!Array.isArray(d.sessions)) throw 0;
-    data.sessions = d.sessions; save(); toast('นำเข้าแล้ว');
+    data.sessions = d.sessions; save('cfg'); toast('นำเข้าแล้ว');
   } catch (e) { toast('ข้อมูลไม่ถูกต้อง'); }
 };
 
 /* เริ่ม */
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) cloud.flush();
-  else if ($('home').classList.contains('active')) renderHome();
+  if (document.hidden) { cloud.flush(); if (gsync.timer) gsync.flush(); return; }
+  if (gsync.user && gsync.hasToken()) gsync.sync();      // กลับมาเปิดแอป ดึงของจากเครื่องอื่น
+  if ($('home').classList.contains('active')) renderHome();
 });
 window.addEventListener('pagehide', () => cloud.flush());
 renderHome();
 setStatus();
+renderAccount();
 initCloud();
+gsync.init();
+$('btnGSignIn').onclick = () => gsync.signIn();
+$('btnGSync').onclick = () => gsync.hasToken() ? gsync.sync() : gsync.signIn();
+$('btnGSignOut').onclick = async () => {
+  if (await ask({ title: 'ออกจากระบบ Google?', text: 'ข้อมูลในเครื่องนี้ยังอยู่ ข้อมูลใน Drive ก็ยังอยู่', ok: 'ออกจากระบบ', danger: true })) gsync.signOut();
+};
 if ('serviceWorker' in navigator && !window.ZIKR_EMBED) navigator.serviceWorker.register('sw.js').catch(() => {});

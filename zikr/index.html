@@ -109,13 +109,26 @@
     <span style="width:56px"></span>
   </header>
   <div class="ed-body">
+    <div id="gAccount" class="g-box" hidden>
+      <div id="gSignedOut">
+        <p class="g-title">ซิงก์ข้ามเครื่องด้วย Google Drive</p>
+        <p class="muted small">เข้าสู่ระบบด้วยบัญชี Google แล้วหมวด บท และการนับ จะเก็บใน Drive ของคุณ เปิดเครื่องไหนก็ได้ข้อมูลเดียวกัน</p>
+        <button class="pill wide ok" id="btnGSignIn">เข้าสู่ระบบด้วย Google</button>
+      </div>
+      <div id="gSignedIn" hidden>
+        <p class="g-title">Google Drive</p>
+        <p class="muted small" id="gEmail"></p>
+        <button class="pill wide" id="btnGSync">ซิงก์ตอนนี้</button>
+        <button class="pill wide ghost" id="btnGSignOut">ออกจากระบบ</button>
+      </div>
+    </div>
     <label class="row-toggle"><span>สั่นเมื่อแตะนับ</span><input type="checkbox" id="optVibrate"></label>
     <label class="row-toggle"><span>ไปบทถัดไปอัตโนมัติเมื่อครบ</span><input type="checkbox" id="optAuto"></label>
     <button class="pill wide" id="btnAddSession">+ เพิ่มหมวด</button>
     <button class="pill wide ghost" id="btnResetToday">ล้างการนับของวันนี้</button>
     <button class="pill wide ghost" id="btnExport">สำรองข้อมูล (คัดลอก)</button>
     <button class="pill wide ghost" id="btnImport">นำเข้าข้อมูล</button>
-    <p class="muted small">บทและหมวดเก็บไว้ในบัญชี Claude ของคุณ การนับจะเริ่มใหม่ทุกวันเอง</p>
+    <p class="muted small">การนับจะเริ่มใหม่ทุกวันเอง</p>
   </div>
 </section>
 
@@ -136,6 +149,7 @@
   </div>
 </div>
 
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="app.js"></script>
 </body>
 </html>

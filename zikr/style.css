@@ -117,3 +117,11 @@ input,textarea{font:inherit}
 .pill.ok{background:var(--accent);color:#000}
 .pill.ok.danger{background:#ff453a;color:#fff}
 [hidden]{display:none!important}
+
+.g-box{background:var(--btn);border-radius:16px;padding:16px;margin:6px 0 8px}
+.g-box .g-title{margin:0 0 4px;font-weight:600}
+.g-box p{margin:0}
+.g-box .pill{background:var(--btn2)}
+.g-box .pill.ok{background:var(--accent);color:#000}
+.g-box .pill.ghost{background:transparent}
+#syncNote.tap{color:#0a84ff;cursor:pointer}
