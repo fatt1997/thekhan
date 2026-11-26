@@ -1,0 +1,609 @@
+'use strict';
+/* ตัวนับซิกิร — เก็บข้อมูลใน localStorage */
+
+const KEY = 'zikr-data-v1';
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+const DEFAULT_ITEMS = () => [
+  { id: uid(), text: 'أَسْتَغْفِرُ اللّٰهَ', note: 'ขออภัยโทษต่ออัลลอฮ์', target: 3 },
+  { id: uid(), text: 'سُبْحَانَ اللّٰهِ', note: 'มหาบริสุทธิ์แด่อัลลอฮ์', target: 33 },
+  { id: uid(), text: 'الْحَمْدُ لِلّٰهِ', note: 'มวลการสรรเสริญเป็นของอัลลอฮ์', target: 33 },
+  { id: uid(), text: 'اللّٰهُ أَكْبَرُ', note: 'อัลลอฮ์ทรงยิ่งใหญ่', target: 34 },
+  { id: uid(), text: 'اللَّهُمَّ صلِّ وسلِّم على نبينا محمد', note: 'ศอลาวาตแด่ท่านนบี', target: 100 },
+];
+
+function defaultData() {
+  return {
+    sessions: ['ศุบฮิ', 'ซุฮ์รี', 'อัศริ', 'มัฆริบ', 'อิชาอ์'].map(name => ({ id: uid(), name, items: DEFAULT_ITEMS() })),
+    progress: { date: todayKey(), counts: {} },
+    opts: { vibrate: true, auto: true },
+  };
+}
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+let data = load();
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY));
+    if (d && Array.isArray(d.sessions)) {
+      d.opts = Object.assign({ vibrate: true, auto: true }, d.opts);
+      d.progress = d.progress || { date: todayKey(), counts: {} };
+      return d;
+    }
+  } catch (e) {}
+  return defaultData();
+}
+// kind: 'cfg' = แก้หมวด/บท/ตั้งค่า, อื่นๆ = การนับ  (เวลาแยกกัน ใช้ตัดสินตอนรวมข้อมูลข้ามเครื่อง)
+function save(kind) {
+  const now = Date.now();
+  if (kind === 'cfg') data.cfgAt = now; else data.progress.at = now;
+  try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+  cloud.queue();
+  if (kind === 'cfg') gsync.queue();   // Drive เก็บแค่หมวดและบท ไม่เก็บจำนวนที่นับ
+}
+
+
+/* ---------- ล็อกอิน Google และซิงก์กับ Google Drive ----------
+   ใช้ Client ID เดียวกับแอป "ที่คั่น" (โดเมนเดียวกันบน GitHub Pages)
+   เก็บไฟล์ zikr.json ไว้ในพื้นที่ซ่อนของแอปใน Drive (appDataFolder) */
+const G_CLIENT_ID = '922844618672-onl873lknucvqdbcou5ogio3vtqm1oub.apps.googleusercontent.com';
+const G_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata';
+const G_FILE = 'zikr.json';
+const KEY_GUSER = 'zikr-guser', KEY_GTOKEN = 'zikr-gtoken';
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+
+const gsync = {
+  enabled: !window.ZIKR_EMBED,
+  user: lsGet(KEY_GUSER),          // { email }
+  tok: lsGet(KEY_GTOKEN),          // { token, exp }
+  client: null, pending: null, fileId: null,
+  state: 'idle',                   // idle | syncing | ok | need | error
+  timer: null, busy: false, again: false,
+
+  hasToken() { return this.tok && this.tok.exp > Date.now(); },
+  ready() {
+    return new Promise((res, rej) => {
+      const t0 = Date.now();
+      const chk = () => (window.google && google.accounts && google.accounts.oauth2) ? res()
+        : Date.now() - t0 > 8000 ? rej(new Error('gis_timeout')) : setTimeout(chk, 100);
+      chk();
+    });
+  },
+  async init() {
+    if (!this.enabled) return;
+    try {
+      await this.ready();
+      this.client = google.accounts.oauth2.initTokenClient({
+        client_id: G_CLIENT_ID, scope: G_SCOPES,
+        callback: r => {
+          const p = this.pending; this.pending = null; if (!p) return;
+          if (r.error) return p.rej(new Error(r.error));
+          this.tok = { token: r.access_token, exp: Date.now() + (Number(r.expires_in || 3600) - 60) * 1000 };
+          lsSet(KEY_GTOKEN, this.tok); p.res();
+        },
+        error_callback: e => { const p = this.pending; this.pending = null; if (p) p.rej(new Error((e && e.type) || 'popup_closed')); },
+      });
+    } catch (e) {}
+    if (this.user) { if (this.hasToken()) this.sync(); else { this.state = 'need'; setStatus(); } }
+  },
+  // ต้องเรียกจากการกดปุ่มเท่านั้น ไม่งั้น Safari บล็อกหน้าต่างล็อกอิน
+  login() {
+    if (!this.client) return Promise.reject(new Error('gis_not_ready'));
+    return new Promise((res, rej) => {
+      this.pending = { res, rej };
+      this.client.requestAccessToken({ prompt: this.user ? '' : 'consent', login_hint: this.user ? this.user.email : undefined });
+    });
+  },
+  async signIn() {
+    try {
+      await this.login();
+      const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + this.tok.token } });
+      const p = r.ok ? await r.json() : {};
+      this.user = { email: p.email || '' }; lsSet(KEY_GUSER, this.user);
+      await this.sync();
+      toast('ซิงก์กับ Google Drive แล้ว');
+    } catch (e) {
+      const m = { popup_closed: 'ปิดหน้าต่างล็อกอินก่อนเสร็จ', popup_failed_to_open: 'เบราว์เซอร์บล็อกหน้าต่างล็อกอิน ลองกดอีกครั้ง',
+        access_denied: 'ยังไม่ได้อนุญาตให้แอปใช้ Drive', gis_not_ready: 'ระบบล็อกอินของ Google ยังไม่พร้อม ลองรีเฟรชหน้า' };
+      toast(m[e.message] || 'ล็อกอินไม่สำเร็จ ลองอีกครั้ง');
+    }
+    renderAccount(); setStatus();
+  },
+  signOut() {
+    if (this.tok && window.google && google.accounts) google.accounts.oauth2.revoke(this.tok.token, () => {});
+    this.user = this.tok = this.fileId = null; lsSet(KEY_GUSER, null); lsSet(KEY_GTOKEN, null);
+    this.state = 'idle'; renderAccount(); setStatus();
+  },
+  async api(url, opts = {}) {
+    if (!this.hasToken()) throw new Error('need_login');
+    const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({}, opts.headers, { Authorization: 'Bearer ' + this.tok.token }) }));
+    if (r.status === 401) { this.tok = null; lsSet(KEY_GTOKEN, null); throw new Error('need_login'); }
+    if (!r.ok) throw new Error('drive_' + r.status);
+    return r;
+  },
+  async findFile() {
+    if (this.fileId) return this.fileId;
+    const q = encodeURIComponent("name='" + G_FILE + "' and trashed=false");
+    const j = await (await this.api('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id)&q=' + q)).json();
+    this.fileId = j.files && j.files[0] ? j.files[0].id : null;
+    return this.fileId;
+  },
+  payload() {
+    if (!data.cfgAt) data.cfgAt = 1;   // เครื่องที่ยังไม่เคยแก้ ถือว่าเก่ากว่าของใน Drive เสมอ
+    return JSON.stringify({ v: 1, sessions: data.sessions, opts: data.opts, cfgAt: data.cfgAt });
+  },
+  async push() {
+    const id = await this.findFile();
+    if (id) {
+      await this.api('https://www.googleapis.com/upload/drive/v3/files/' + id + '?uploadType=media',
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: this.payload() });
+    } else {
+      const b = 'zikr' + Math.random().toString(36).slice(2);
+      const body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify({ name: G_FILE, parents: ['appDataFolder'] }) + '\r\n--' + b +
+        '\r\nContent-Type: application/json\r\n\r\n' + this.payload() + '\r\n--' + b + '--';
+      const j = await (await this.api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body })).json();
+      this.fileId = j.id;
+    }
+  },
+  // ดึงหมวด/บทจาก Drive มารวมกับในเครื่อง ใช้ชุดที่แก้ล่าสุด (การนับอยู่แค่ในเครื่อง)
+  async sync() {
+    if (!this.user || this.busy) { this.again = this.busy; return; }
+    this.busy = true; this.state = 'syncing'; setStatus();
+    try {
+      const id = await this.findFile();
+      let changed = false, needPush = !id;
+      if (id) {
+        const r = await (await this.api('https://www.googleapis.com/drive/v3/files/' + id + '?alt=media')).json();
+        if (r && Array.isArray(r.sessions)) {
+          if ((r.cfgAt || 0) > (data.cfgAt || -1)) {
+            data.sessions = r.sessions; data.opts = Object.assign({ vibrate: true, auto: true }, r.opts); data.cfgAt = r.cfgAt; changed = true;
+          } else if ((r.cfgAt || 0) < (data.cfgAt || -1)) needPush = true;
+        } else needPush = true;
+      }
+      if (changed) { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} refreshView(); }
+      if (needPush) await this.push();
+      this.state = 'ok';
+    } catch (e) {
+      this.state = e.message === 'need_login' ? 'need' : 'error';
+    }
+    this.busy = false; setStatus();
+    if (this.again) { this.again = false; this.queue(); }
+  },
+  queue() {
+    if (!this.user) return;
+    if (!this.hasToken()) { this.state = 'need'; setStatus(); return; }
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 1500);
+  },
+  async flush() {
+    clearTimeout(this.timer); this.timer = null;
+    if (!this.user || !this.hasToken()) return;
+    if (this.busy) { this.again = true; return; }
+    this.busy = true; this.state = 'syncing'; setStatus();
+    try { await this.push(); this.state = 'ok'; }
+    catch (e) { this.state = e.message === 'need_login' ? 'need' : 'error'; }
+    this.busy = false; setStatus();
+    if (this.again) { this.again = false; this.queue(); }
+  },
+};
+
+function renderAccount() {
+  const box = document.getElementById('gAccount'); if (!box) return;
+  if (!gsync.enabled) { box.hidden = true; return; }
+  box.hidden = false;
+  $('gSignedOut').hidden = !!gsync.user;
+  $('gSignedIn').hidden = !gsync.user;
+  if (gsync.user) $('gEmail').textContent = gsync.user.email || 'บัญชี Google';
+}
+
+/* ---------- เก็บในบัญชี Claude (ไม่หายเมื่อปิดแอป) ---------- */
+const cloud = {
+  ref: null, dirty: false, writing: false, timer: null, ok: false,
+  queue() {
+    if (!this.ref) return;
+    this.dirty = true;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 800);
+  },
+  async flush() {
+    clearTimeout(this.timer);
+    if (!this.ref || !this.dirty || this.writing) return;
+    this.dirty = false; this.writing = true;
+    try {
+      await this.ref.set({ v: 1, sessions: data.sessions, opts: data.opts, progress: data.progress, savedAt: Date.now() });
+      this.ok = true;
+    } catch (e) {
+      this.dirty = true; this.ok = false;
+      if (e && e.code === 'unavailable') setTimeout(() => this.flush(), 1500 + Math.random() * 1000);
+    }
+    this.writing = false;
+    setStatus();
+    if (this.dirty) this.queue();
+  },
+};
+function setStatus() {
+  const el = document.getElementById('syncNote'); if (!el) return;
+  el.onclick = null; el.classList.remove('tap');
+  if (gsync.user) {
+    const m = { syncing: 'กำลังซิงก์กับ Google Drive…', ok: '✓ ซิงก์กับ Google Drive แล้ว',
+      error: 'ซิงก์ไม่สำเร็จ แตะเพื่อลองใหม่', need: 'แตะเพื่อซิงก์กับ Google Drive', idle: 'Google Drive' };
+    el.textContent = m[gsync.state] || '';
+    if (gsync.state === 'need' || gsync.state === 'error') {
+      el.classList.add('tap');
+      el.onclick = () => gsync.state === 'need' ? gsync.signIn() : gsync.sync();
+    }
+  } else if (cloud.ref) el.textContent = cloud.ok ? '☁︎ บันทึกในบัญชีแล้ว' : '☁︎ กำลังเชื่อมต่อ…';
+  else if (gsync.enabled) { el.textContent = 'ยังไม่ได้ซิงก์ แตะเพื่อเข้าสู่ระบบ Google'; el.classList.add('tap'); el.onclick = () => gsync.signIn(); }
+  else el.textContent = 'บันทึกเฉพาะเครื่องนี้';
+}
+async function initCloud() {
+  if (!window.claude || !window.claude.use) return;
+  try {
+    const [db, user] = await Promise.all([claude.use('db'), claude.use('user')]);
+    if (!db || !user) return;
+    const id = await user.id(); if (!id) return;
+    cloud.ref = db.doc('data/users/' + id + '/zikr');
+    setStatus();
+    let first = true;
+    const loadTimer = setTimeout(() => { if (first) setStatus(); }, 10000);
+    cloud.ref.onSnapshot(snap => {
+      if (snap.metadata.hasPendingWrites || cloud.dirty || cloud.writing) return;
+      if (snap.exists) {
+        const d = snap.data();
+        if (d && Array.isArray(d.sessions)) {
+          data = {
+            sessions: JSON.parse(JSON.stringify(d.sessions)),
+            opts: Object.assign({ vibrate: true, auto: true }, d.opts),
+            progress: d.progress ? JSON.parse(JSON.stringify(d.progress)) : { date: todayKey(), counts: {} },
+          };
+          try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+          if (!snap.metadata.fromCache) cloud.ok = true;
+          refreshView();
+        }
+      } else if (first && !snap.metadata.fromCache) {
+        cloud.dirty = true; cloud.flush();   // ครั้งแรก: ส่งข้อมูลในเครื่องขึ้นบัญชี
+      }
+      if (!snap.metadata.fromCache) { first = false; clearTimeout(loadTimer); }
+      setStatus();
+    }, () => { cloud.ok = false; setStatus(); });
+  } catch (e) {}
+}
+function refreshView() {
+  if (!data.sessions[cur.s]) cur.s = 0;
+  if ($('home').classList.contains('active')) renderHome();
+  else if ($('counter').classList.contains('active')) {
+    cur.i = Math.min(cur.i, Math.max(0, sess().items.length - 1));
+    renderCounter();
+  }
+}
+function rollDay() {
+  if (data.progress.date !== todayKey()) { data.progress = { date: todayKey(), counts: {} }; save(); }
+}
+
+const $ = id => document.getElementById(id);
+const countOf = item => data.progress.counts[item.id] || 0;
+const isDone = item => countOf(item) >= item.target;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+}
+let toastT;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 1800);
+}
+
+/* กล่องถามในหน้า (แทน confirm/prompt) */
+function ask({ title, text = '', input = false, area = false, value = '', ok = 'ตกลง', danger = false, cancel = true }) {
+  return new Promise(res => {
+    const m = $('modal'), inp = $('mInput'), ta = $('mArea');
+    $('mTitle').textContent = title; $('mText').textContent = text;
+    inp.hidden = !input; ta.hidden = !area; inp.value = ta.value = value;
+    $('mOk').textContent = ok; $('mOk').classList.toggle('danger', danger);
+    $('mCancel').hidden = !cancel;
+    m.classList.remove('hidden');
+    if (input) inp.focus(); else if (area) { ta.focus(); if (value) ta.select(); }
+    const done = v => { m.classList.add('hidden'); $('mOk').onclick = $('mCancel').onclick = null; res(v); };
+    $('mOk').onclick = () => done(input ? inp.value : area ? ta.value : true);
+    $('mCancel').onclick = () => done(input || area ? null : false);
+  });
+}
+function buzz(ms) { if (data.opts.vibrate && navigator.vibrate) navigator.vibrate(ms); }
+
+/* ---------- หน้าแรก ---------- */
+function renderHome() {
+  rollDay();
+  $('today').textContent = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('sessionList').innerHTML = data.sessions.map((s, i) => {
+    const n = s.items.length, done = s.items.filter(isDone).length;
+    const pct = n ? Math.round(done / n * 100) : 0;
+    return `<button class="s-card ${n && done === n ? 'done' : ''}" data-i="${i}">
+      <div class="s-num">${n && done === n ? '✓' : i + 1}</div>
+      <div class="s-info">
+        <div class="s-name">${esc(s.name)}</div>
+        <div class="s-sub">${done}/${n} บท</div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+      </div></button>`;
+  }).join('');
+}
+$('sessionList').addEventListener('click', e => {
+  const b = e.target.closest('.s-card'); if (b) openSession(+b.dataset.i);
+});
+
+/* ---------- หน้านับ ---------- */
+let cur = { s: 0, i: 0 };
+const sess = () => data.sessions[cur.s];
+const item = () => sess().items[cur.i];
+
+function openSession(si) {
+  rollDay();
+  cur.s = si;
+  const items = sess().items;
+  const first = items.findIndex(it => !isDone(it));
+  cur.i = first < 0 ? 0 : first;
+  show('counter');
+  renderCounter();
+}
+
+function renderCounter() {
+  const s = sess(), items = s.items;
+  $('sessionTitle').textContent = s.name;
+  const allDone = items.length > 0 && items.every(isDone);
+  const empty = items.length === 0;
+  $('doneAll').classList.toggle('hidden', !(allDone && cur.showDone));
+  $('slide').classList.toggle('hidden', allDone && cur.showDone);
+  if (empty) {
+    $('pos').textContent = '';
+    $('dhikrText').textContent = 'ยังไม่มีบท'; $('dhikrText').dataset.id = '';
+    $('dhikrNote').textContent = 'กดปุ่มดินสอด้านบนเพื่อเพิ่มบท';
+    $('count').textContent = ''; $('target').textContent = '';
+    $('dots').innerHTML = '';
+    return;
+  }
+  const it = item(), c = countOf(it);
+  $('pos').textContent = `บทที่ ${cur.i + 1} / ${items.length}`;
+  const tx = $('dhikrText');
+  if (tx.dataset.id !== it.id) { tx.dataset.id = it.id; tx.scrollTop = 0; }
+  if (tx.textContent !== it.text) tx.textContent = it.text;
+  requestAnimationFrame(markScroll);
+  $('dhikrNote').textContent = it.note || '';
+  $('count').textContent = c;
+  $('target').textContent = isDone(it) ? `ครบ ${it.target} ครั้ง ✓` : `จาก ${it.target} ครั้ง`;
+  $('slide').classList.toggle('complete', isDone(it));
+  $('dots').innerHTML = items.map((x, k) =>
+    `<i class="${k === cur.i ? 'cur' : ''} ${isDone(x) ? 'done' : ''}"></i>`).join('');
+}
+
+/* ข้อความยาว: จางด้านล่างเพื่อบอกว่าเลื่อนอ่านต่อได้ */
+function markScroll() {
+  const t = $('dhikrText');
+  t.classList.toggle('more', t.scrollHeight > t.clientHeight + 4);
+  t.classList.toggle('end', t.scrollTop + t.clientHeight >= t.scrollHeight - 4);
+}
+$('dhikrText').addEventListener('scroll', markScroll, { passive: true });
+window.addEventListener('resize', markScroll);
+
+let advanceT;
+function tap() {
+  const items = sess().items;
+  if (!items.length || cur.showDone) return;
+  const it = item();
+  if (isDone(it)) { goNext(); return; }
+  data.progress.counts[it.id] = countOf(it) + 1;
+  save();
+  const c = $('count'); c.classList.add('bump'); setTimeout(() => c.classList.remove('bump'), 80);
+  if (isDone(it)) {
+    buzz([60, 60, 120]);
+    renderCounter();
+    if (data.opts.auto) {
+      clearTimeout(advanceT);
+      advanceT = setTimeout(() => {
+        if (items.every(isDone)) { cur.showDone = true; renderCounter(); }
+        else goNext();
+      }, 700);
+    }
+  } else {
+    buzz(15);
+    renderCounter();
+  }
+}
+
+function slideTo(newI, dir) {
+  clearTimeout(advanceT);
+  cur.showDone = false;
+  const sl = $('slide');
+  sl.classList.add('anim');
+  sl.style.transform = `translateX(${dir < 0 ? -40 : 40}%)`; sl.style.opacity = 0;
+  setTimeout(() => {
+    cur.i = newI; renderCounter();
+    sl.classList.remove('anim');
+    sl.style.transform = `translateX(${dir < 0 ? 40 : -40}%)`;
+    requestAnimationFrame(() => {
+      sl.classList.add('anim'); sl.style.transform = ''; sl.style.opacity = 1;
+    });
+  }, 180);
+}
+function goNext() {
+  const n = sess().items.length;
+  if (cur.i < n - 1) slideTo(cur.i + 1, -1);
+  else if (sess().items.every(isDone)) { cur.showDone = true; renderCounter(); }
+  else { const f = sess().items.findIndex(x => !isDone(x)); slideTo(f, -1); }
+}
+function goPrev() { if (cur.i > 0) slideTo(cur.i - 1, 1); }
+
+/* แตะ / ปัด */
+(() => {
+  const st = $('stage'); let sx = 0, sy = 0, down = false, moved = false;
+  st.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    down = true; moved = false; sx = e.clientX; sy = e.clientY;
+  });
+  st.addEventListener('pointermove', e => {
+    if (!down) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) > 12 || Math.abs(dy) > 12) moved = true;
+    // ขยับตามนิ้วเฉพาะตอนปัดแนวนอน ปัดแนวตั้งปล่อยให้เลื่อนข้อความ
+    if (moved && !cur.showDone && Math.abs(dx) > Math.abs(dy)) $('slide').style.transform = `translateX(${dx * 0.5}px)`;
+  });
+  const end = e => {
+    if (!down) return; down = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    $('slide').style.transform = '';
+    if (!moved) { tap(); return; }
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? goNext() : goPrev();
+  };
+  st.addEventListener('pointerup', end);
+  st.addEventListener('pointercancel', () => { down = false; $('slide').style.transform = ''; });
+  // คีย์บอร์ด (ใช้บนคอม): เว้นวรรค = นับ, ลูกศร = เปลี่ยนบท
+  document.addEventListener('keydown', e => {
+    if (!$('counter').classList.contains('active') || !$('sheet').classList.contains('hidden') || !$('modal').classList.contains('hidden')) return;
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); tap(); }
+    if (e.key === 'ArrowLeft') goNext();
+    if (e.key === 'ArrowRight') goPrev();
+  });
+})();
+
+$('btnBack').onclick = () => { clearTimeout(advanceT); cur.showDone = false; show('home'); renderHome(); };
+$('btnDoneBack').onclick = $('btnBack').onclick;
+$('btnReset').onclick = async () => {
+  if (!sess().items.length) return;
+  if (!await ask({ title: 'เริ่มนับบทนี้ใหม่จาก 0 ?', ok: 'เริ่มใหม่', danger: true })) return;
+  clearTimeout(advanceT); cur.showDone = false;
+  delete data.progress.counts[item().id]; save(); renderCounter();
+};
+
+/* รายการบท */
+$('btnList').onclick = () => {
+  const items = sess().items;
+  $('sheetTitle').textContent = sess().name;
+  $('sheetBody').innerHTML = items.map((x, k) =>
+    `<button class="li ${isDone(x) ? 'done' : ''} ${k === cur.i ? 'cur' : ''}" data-k="${k}">
+      <span class="ct">${k + 1}.</span><span class="ar">${esc(x.text)}</span>
+      <span class="ct">${countOf(x)}/${x.target}</span></button>`).join('') ||
+    '<p class="muted">ยังไม่มีบท</p>';
+  $('sheet').classList.remove('hidden');
+};
+$('sheet').addEventListener('click', e => {
+  if (e.target.closest('[data-close]')) { $('sheet').classList.add('hidden'); return; }
+  const b = e.target.closest('.li');
+  if (b) { $('sheet').classList.add('hidden'); clearTimeout(advanceT); cur.showDone = false; cur.i = +b.dataset.k; renderCounter(); }
+});
+
+/* ---------- แก้ไขบท ---------- */
+let draft = null;
+$('btnEdit').onclick = () => {
+  draft = JSON.parse(JSON.stringify(sess()));
+  $('edName').value = draft.name;
+  renderEditor();
+  show('editor');
+};
+function renderEditor() {
+  $('edItems').innerHTML = draft.items.map((x, k) => `
+    <div class="ed-item" data-k="${k}">
+      <div class="num">บทที่ ${k + 1}</div>
+      <textarea class="ar" data-f="text" placeholder="คำซิกิร (อาหรับหรือไทย)">${esc(x.text)}</textarea>
+      <div class="row"><input data-f="note" placeholder="ความหมาย / หมายเหตุ (ไม่ใส่ก็ได้)" value="${esc(x.note || '')}"></div>
+      <div class="row">
+        <span class="lbl">นับ</span><input class="n" data-f="target" type="number" inputmode="numeric" min="1" value="${x.target}"><span class="lbl">ครั้ง</span>
+        <span class="sp"></span>
+        <button class="mini" data-a="up" aria-label="เลื่อนขึ้น">↑</button>
+        <button class="mini" data-a="down" aria-label="เลื่อนลง">↓</button>
+        <button class="mini del" data-a="del" aria-label="ลบ">✕</button>
+      </div>
+    </div>`).join('');
+}
+$('edItems').addEventListener('input', e => {
+  const box = e.target.closest('.ed-item'); const f = e.target.dataset.f;
+  if (!box || !f) return;
+  const x = draft.items[+box.dataset.k];
+  x[f] = f === 'target' ? Math.max(1, parseInt(e.target.value, 10) || 1) : e.target.value;
+});
+$('edItems').addEventListener('click', async e => {
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  const k = +b.closest('.ed-item').dataset.k, a = b.dataset.a, arr = draft.items;
+  if (a === 'del') { if (!await ask({ title: 'ลบบทนี้?', ok: 'ลบ', danger: true })) return; arr.splice(k, 1); }
+  if (a === 'up' && k > 0) [arr[k - 1], arr[k]] = [arr[k], arr[k - 1]];
+  if (a === 'down' && k < arr.length - 1) [arr[k + 1], arr[k]] = [arr[k], arr[k + 1]];
+  renderEditor();
+});
+$('btnAddItem').onclick = () => {
+  draft.items.push({ id: uid(), text: '', note: '', target: 3 });
+  renderEditor();
+  const all = $('edItems').querySelectorAll('textarea'); all[all.length - 1].focus();
+};
+$('btnPaste').onclick = async () => {
+  const txt = await ask({ title: 'วางหลายบทพร้อมกัน', area: true, ok: 'เพิ่ม',
+    text: 'บรรทัดละ 1 บท ใส่จำนวนครั้งท้ายบรรทัดหลัง | เช่น\nسبحان الله | 33' });
+  if (!txt) return;
+  txt.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
+    const m = l.match(/^(.*?)\s*[|x×*]\s*(\d+)\s*$/);
+    draft.items.push({ id: uid(), text: m ? m[1] : l, note: '', target: m ? +m[2] : 1 });
+  });
+  renderEditor();
+};
+$('btnEdCancel').onclick = () => { draft = null; show('counter'); renderCounter(); };
+$('btnEdSave').onclick = () => {
+  draft.name = $('edName').value.trim() || sess().name;
+  draft.items = draft.items.filter(x => x.text.trim());
+  data.sessions[cur.s] = draft; draft = null; save('cfg');
+  cur.i = Math.min(cur.i, Math.max(0, sess().items.length - 1));
+  cur.showDone = false;
+  show('counter'); renderCounter(); toast('บันทึกแล้ว');
+};
+
+/* ---------- ตั้งค่า ---------- */
+$('btnSettings').onclick = () => {
+  $('optVibrate').checked = data.opts.vibrate; $('optAuto').checked = data.opts.auto;
+  show('settings');
+};
+$('btnSetBack').onclick = () => { show('home'); renderHome(); };
+$('optVibrate').onchange = e => { data.opts.vibrate = e.target.checked; save('cfg'); };
+$('optAuto').onchange = e => { data.opts.auto = e.target.checked; save('cfg'); };
+$('btnAddSession').onclick = async () => {
+  const name = await ask({ title: 'ชื่อหมวดใหม่', input: true, ok: 'เพิ่ม' }); if (!name || !name.trim()) return;
+  data.sessions.push({ id: uid(), name: name.trim(), items: [] }); save('cfg'); toast('เพิ่มหมวดแล้ว');
+};
+$('btnResetToday').onclick = async () => {
+  if (!await ask({ title: 'ล้างการนับของวันนี้ทั้งหมด?', ok: 'ล้าง', danger: true })) return;
+  data.progress = { date: todayKey(), counts: {} }; save(); toast('ล้างแล้ว');
+};
+$('btnExport').onclick = async () => {
+  const s = JSON.stringify({ sessions: data.sessions }, null, 1);
+  try { await navigator.clipboard.writeText(s); toast('คัดลอกข้อมูลแล้ว'); }
+  catch (e) { ask({ title: 'คัดลอกข้อความนี้เก็บไว้', area: true, value: s, ok: 'ปิด', cancel: false }); }
+};
+$('btnImport').onclick = async () => {
+  const s = await ask({ title: 'วางข้อมูลที่สำรองไว้', area: true, ok: 'นำเข้า' }); if (!s) return;
+  try {
+    const d = JSON.parse(s);
+    if (!Array.isArray(d.sessions)) throw 0;
+    data.sessions = d.sessions; save('cfg'); toast('นำเข้าแล้ว');
+  } catch (e) { toast('ข้อมูลไม่ถูกต้อง'); }
+};
+
+/* เริ่ม */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { cloud.flush(); if (gsync.timer) gsync.flush(); return; }
+  if (gsync.user && gsync.hasToken()) gsync.sync();      // กลับมาเปิดแอป ดึงของจากเครื่องอื่น
+  if ($('home').classList.contains('active')) renderHome();
+});
+window.addEventListener('pagehide', () => cloud.flush());
+renderHome();
+setStatus();
+renderAccount();
+initCloud();
+gsync.init();
+$('btnGSignIn').onclick = () => gsync.signIn();
+$('btnGSync').onclick = () => gsync.hasToken() ? gsync.sync() : gsync.signIn();
+$('btnGSignOut').onclick = async () => {
+  if (await ask({ title: 'ออกจากระบบ Google?', text: 'ข้อมูลในเครื่องนี้ยังอยู่ ข้อมูลใน Drive ก็ยังอยู่', ok: 'ออกจากระบบ', danger: true })) gsync.signOut();
+};
+if ('serviceWorker' in navigator && !window.ZIKR_EMBED) navigator.serviceWorker.register('sw.js').catch(() => {});
